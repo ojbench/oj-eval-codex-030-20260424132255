@@ -7,64 +7,85 @@
 #include <queue>
 #include <cmath>
 #include <algorithm>
+#include <utility>
 
-typedef std::vector<std::vector<double>> IMAGE_T;
+typedef std::vector<std::vector<double> > IMAGE_T;
 
 namespace detail_digit {
-static inline int H = 28, W = 28;
+static int H = 28, W = 28;
 
-static inline std::vector<std::vector<int>> binarize(const IMAGE_T &img) {
-    std::vector<std::vector<int>> b(H, std::vector<int>(W, 0));
+static inline std::vector<std::vector<int> > binarize(const IMAGE_T &img) {
+    std::vector<std::vector<int> > b(H, std::vector<int>(W, 0));
     // Otsu-like simple threshold: use mean as base and clamp to reasonable range
     double sum = 0.0; int cnt = 0;
     for (int i = 0; i < H; ++i) for (int j = 0; j < W; ++j) { sum += img[i][j]; ++cnt; }
     double mean = cnt ? (sum / cnt) : 0.5;
-    double th = std::clamp(1.0 - mean * 0.9, 0.2, 0.7); // expect digit darker
+    double th = 1.0 - mean * 0.9; // expect digit darker
+    if (th < 0.2) th = 0.2; else if (th > 0.7) th = 0.7;
     for (int i = 0; i < H; ++i)
         for (int j = 0; j < W; ++j)
             b[i][j] = (img[i][j] < th) ? 1 : 0; // 1 means foreground (dark stroke)
     return b;
 }
 
-static inline void bbox(const std::vector<std::vector<int>> &b, int &r0,int &c0,int &r1,int &c1){
+static inline void bbox(const std::vector<std::vector<int> > &b, int &r0,int &c0,int &r1,int &c1){
     r0=H; c0=W; r1=-1; c1=-1;
     for(int i=0;i<H;++i) for(int j=0;j<W;++j) if(b[i][j]){ r0=std::min(r0,i); c0=std::min(c0,j); r1=std::max(r1,i); c1=std::max(c1,j);}    
     if(r1<r0){ r0=c0=0; r1=H-1; c1=W-1; }
 }
 
-static inline int count_holes(const std::vector<std::vector<int>> &b, int r0,int c0,int r1,int c1){
+static inline int count_holes(const std::vector<std::vector<int> > &b, int r0,int c0,int r1,int c1){
     // Flood fill background and count enclosed zero regions in inverted mask
     int h=r1-r0+1, w=c1-c0+1;
-    std::vector<std::vector<int>> vis(h, std::vector<int>(w,0));
-    auto inside=[&](int r,int c){return r>=0&&r<h&&c>=0&&c<w;};
+    std::vector<std::vector<int> > vis(h, std::vector<int>(w,0));
     // Mark background connected to border in complement graph
-    std::queue<std::pair<int,int>> q;
-    auto is_bg=[&](int R,int C){ return b[r0+R][c0+C]==0; };
-    for(int i=0;i<h;++i){ if(is_bg(i,0)){q.push({i,0});vis[i][0]=1;} if(is_bg(i,w-1)){q.push({i,w-1});vis[i][w-1]=1;} }
-    for(int j=0;j<w;++j){ if(is_bg(0,j)){q.push({0,j});vis[0][j]=1;} if(is_bg(h-1,j)){q.push({h-1,j});vis[h-1][j]=1;} }
+    std::queue<std::pair<int,int> > q;
+    for(int i=0;i<h;++i){
+        if(b[r0+i][c0+0]==0){ q.push(std::make_pair(i,0)); vis[i][0]=1; }
+        if(b[r0+i][c0+w-1]==0){ q.push(std::make_pair(i,w-1)); vis[i][w-1]=1; }
+    }
+    for(int j=0;j<w;++j){
+        if(b[r0+0][c0+j]==0){ q.push(std::make_pair(0,j)); vis[0][j]=1; }
+        if(b[r0+h-1][c0+j]==0){ q.push(std::make_pair(h-1,j)); vis[h-1][j]=1; }
+    }
     int dr[4]={1,-1,0,0}, dc[4]={0,0,1,-1};
     while(!q.empty()){
-        auto [r,c]=q.front(); q.pop();
-        for(int k=0;k<4;++k){int nr=r+dr[k], nc=c+dc[k]; if(inside(nr,nc)&&!vis[nr][nc]&&is_bg(nr,nc)){vis[nr][nc]=1;q.push({nr,nc});}}
+        std::pair<int,int> pc = q.front(); q.pop();
+        int r = pc.first, c = pc.second;
+        for(int k=0;k<4;++k){
+            int nr=r+dr[k], nc=c+dc[k];
+            if(nr>=0 && nr<h && nc>=0 && nc<w && !vis[nr][nc] && b[r0+nr][c0+nc]==0){
+                vis[nr][nc]=1; q.push(std::make_pair(nr,nc));
+            }
+        }
     }
     // Remaining background components are holes
     int holes=0;
-    for(int i=0;i<h;++i) for(int j=0;j<w;++j){ if(!vis[i][j] && is_bg(i,j)){
-            ++holes; vis[i][j]=1; q.push({i,j});
-            while(!q.empty()){ auto [r,c]=q.front(); q.pop();
-                for(int k=0;k<4;++k){int nr=r+dr[k], nc=c+dc[k]; if(inside(nr,nc)&&!vis[nr][nc]&&is_bg(nr,nc)){vis[nr][nc]=1;q.push({nr,nc});}}
+    for(int i=0;i<h;++i) for(int j=0;j<w;++j){
+        if(!vis[i][j] && b[r0+i][c0+j]==0){
+            ++holes; vis[i][j]=1; q.push(std::make_pair(i,j));
+            while(!q.empty()){
+                std::pair<int,int> pc = q.front(); q.pop();
+                int r = pc.first, c = pc.second;
+                for(int k=0;k<4;++k){
+                    int nr=r+dr[k], nc=c+dc[k];
+                    if(nr>=0 && nr<h && nc>=0 && nc<w && !vis[nr][nc] && b[r0+nr][c0+nc]==0){
+                        vis[nr][nc]=1; q.push(std::make_pair(nr,nc));
+                    }
+                }
             }
-        }}
+        }
+    }
     return holes;
 }
 
-static inline int vertical_cuts(const std::vector<std::vector<int>> &b,int r0,int c0,int r1,int c1){
+static inline int vertical_cuts(const std::vector<std::vector<int> > &b,int r0,int c0,int r1,int c1){
     int cuts=0; bool in=false;
     for(int j=c0;j<=c1;++j){ int col=0; for(int i=r0;i<=r1;++i) col+=b[i][j]; if(col==0){ if(!in){in=true; ++cuts;} } else in=false; }
     return cuts; // number of blank vertical gaps inside bbox
 }
 
-static inline int endpoints(const std::vector<std::vector<int>> &b,int r0,int c0,int r1,int c1){
+static inline int endpoints(const std::vector<std::vector<int> > &b,int r0,int c0,int r1,int c1){
     int ep=0; int dr[8]={1,1,1,0,0,-1,-1,-1}; int dc[8]={-1,0,1,-1,1,-1,0,1};
     for(int i=r0;i<=r1;++i) for(int j=c0;j<=c1;++j) if(b[i][j]){
         int deg=0; for(int k=0;k<8;++k){ int ni=i+dr[k], nj=j+dc[k]; if(ni>=r0&&ni<=r1&&nj>=c0&&nj<=c1&&b[ni][nj]) ++deg; }
@@ -73,11 +94,11 @@ static inline int endpoints(const std::vector<std::vector<int>> &b,int r0,int c0
     return ep;
 }
 
-static inline double fill_ratio(const std::vector<std::vector<int>> &b,int r0,int c0,int r1,int c1){
+static inline double fill_ratio(const std::vector<std::vector<int> > &b,int r0,int c0,int r1,int c1){
     int area=(r1-r0+1)*(c1-c0+1), on=0; for(int i=r0;i<=r1;++i) for(int j=c0;j<=c1;++j) on+=b[i][j]; return area? (double)on/area : 0.0;
 }
 
-static inline int classify(const std::vector<std::vector<int>> &b){
+static inline int classify(const std::vector<std::vector<int> > &b){
     int r0,c0,r1,c1; bbox(b,r0,c0,r1,c1);
     int h=r1-r0+1, w=c1-c0+1; double ar = h>0? (double)w/h : 1.0;
     int holes = count_holes(b,r0,c0,r1,c1);
@@ -143,4 +164,3 @@ int judge(IMAGE_T &img){
     if(d<0 || d>9) d = 0; // clamp safety
     return d;
 }
-
