@@ -159,7 +159,7 @@ int judge(IMAGE_T &img){
     // Defensive: ensure size 28x28
     detail_digit::H = (int)img.size();
     detail_digit::W = detail_digit::H? (int)img[0].size() : 28;
-    auto b = detail_digit::binarize(img);
+    std::vector<std::vector<int> > b = detail_digit::binarize(img);
     int d = detail_digit::classify(b);
     if(d<0 || d>9) d = 0; // clamp safety
     return d;
