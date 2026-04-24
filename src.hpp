@@ -1,15 +1,15 @@
 // Heuristic handwritten digit recognizer for 28x28 grayscale images
 // The OJ will include this header and call judge(IMAGE_T&).
-// IMAGE_T is std::vector<std::vector<double>> with values in [0,1], 1=white, 0=black.
+// IMAGE_T is defined in read_support.hpp as std::vector<std::vector<double>> with values in [0,1], 1=white, 0=black.
 
-#pragma once
+#ifndef JUDGE_H
+#define JUDGE_H
+#include "read_support.hpp"
 #include <vector>
 #include <queue>
 #include <cmath>
 #include <algorithm>
 #include <utility>
-
-typedef std::vector<std::vector<double> > IMAGE_T;
 
 namespace detail_digit {
 static int H = 28, W = 28;
@@ -164,3 +164,5 @@ int judge(IMAGE_T &img){
     if(d<0 || d>9) d = 0; // clamp safety
     return d;
 }
+
+#endif // JUDGE_H
